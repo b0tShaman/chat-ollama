@@ -2,6 +2,8 @@
 
 A lightweight, real-time AI chat interface powered by **Go** and **Ollama**. It runs entirely locally but includes built-in options to share your bot over **LAN (WiFi)** or the internet via **Ngrok**.
 
+![Demo](assets/demo.gif)
+
 ## ✨ Features
 * **Real-time Streaming:** Typewriter effect using WebSockets.
 * **Context Aware:** Remembers conversation history (with sliding window memory).
