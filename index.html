@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat-Ollama</title>
+    <style>
+        /* Base Setup */
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #ffffff;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Main Container: Fills the whole screen.
+           We use flexbox to push the input area to the bottom.
+        */
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            width: 100%;
+        }
+
+        /* Header: Simple top bar */
+        .chat-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid #eee;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #444;
+            background: #fff;
+        }
+
+        /* Messages Area: Expands to fill available space.
+           'align-items: center' keeps the message "column" centered on wide screens.
+        */
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 0; /* Vertical padding only */
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Message Wrapper: This constrains the width of the chat bubbles 
+           so they don't stretch across the entire ultra-wide monitor.
+           Similar to how Gemini/ChatGPT limits text width.
+        */
+        .message-row {
+            width: 100%;
+            display: flex;
+            justify-content: center; /* Centers the content area */
+        }
+
+        .message-content {
+            width: 100%;
+            max-width: 800px; /* Max read width */
+            padding: 0 20px;
+            display: flex;
+        }
+
+        /* Bubble Styles */
+        .message-bubble {
+            max-width: 85%;
+            padding: 12px 18px;
+            border-radius: 18px;
+            font-size: 1rem;
+            line-height: 1.6;
+            white-space: pre-wrap; /* Preserves code formatting */
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        /* User Specifics */
+        .message-row.user .message-content {
+            justify-content: flex-end;
+        }
+        .message-row.user .message-bubble {
+            background-color: #f0f4f9; /* Gemini-like light blue/grey */
+            color: #1f1f1f;
+            border-bottom-right-radius: 4px;
+        }
+
+        /* Bot Specifics */
+        .message-row.bot .message-content {
+            justify-content: flex-start;
+        }
+        .message-row.bot .message-bubble {
+            background-color: transparent; /* Clean look like modern AI */
+            color: #000;
+            padding-left: 0; /* Align flush with left for bot */
+            box-shadow: none;
+        }
+
+        /* Input Area: Pinned to bottom
+        */
+        .input-area {
+            padding: 20px;
+            background: #ffffff;
+            display: flex;
+            justify-content: center;
+        }
+
+        .input-wrapper {
+            width: 100%;
+            max-width: 800px;
+            position: relative;
+            background: #f0f4f9;
+            border-radius: 30px;
+            display: flex;
+            align-items: center;
+            padding: 5px 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 14px 20px;
+            border: none;
+            background: transparent;
+            font-size: 1rem;
+            outline: none;
+        }
+
+        button {
+            background: #007d9c;
+            color: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+            margin-right: 5px;
+        }
+        
+        button:hover { background: #005f75; }
+        button:disabled { background: #ccc; cursor: default; }
+
+        /* Icon for send button (SVG) */
+        .send-icon { width: 20px; height: 20px; fill: white; }
+
+    </style>
+</head>
+<body>
+
+<div class="chat-container">
+    <div class="chat-header">
+        chatOllama <span style="font-weight:normal; color:#888; font-size: 0.9em;"></span>
+    </div>
+
+    <div class="chat-messages" id="chat-messages">
+        <div class="message-row bot">
+            <div class="message-content">
+                <div class="message-bubble">Yo Noob, Whatchu want ?</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="input-area">
+        <div class="input-wrapper">
+            <input type="text" id="user-input" placeholder="Type a message..." autocomplete="off">
+            <button id="send-btn" onclick="sendMessage()">
+                <svg class="send-icon" viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const inputField = document.getElementById('user-input');
+    const messagesDiv = document.getElementById('chat-messages');
+    const sendBtn = document.getElementById('send-btn');
+    
+    // 1. Initialize WebSocket
+    // Automatically determines protocol (ws or wss) and host (ngrok url)
+    const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+    const socket = new WebSocket(protocol + window.location.host + "/ws");
+    
+    let currentBotBubble = null;
+
+    socket.onopen = () => console.log("WebSocket Connected");
+
+    socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (!currentBotBubble) {
+            currentBotBubble = createMessageRow('bot');
+        }
+
+        if (data.done) {
+            currentBotBubble = null;
+            enableInput();
+        } else {
+            currentBotBubble.textContent += data.chunk;
+            scrollToBottom();
+        }
+    };
+
+    socket.onerror = (error) => {
+        console.error("WebSocket Error:", error);
+        alert("Connection failed. Check server console.");
+        enableInput();
+    };
+
+    inputField.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") sendMessage();
+    });
+
+    function createMessageRow(sender) {
+        // 1. Create Row Container
+        const row = document.createElement('div');
+        row.classList.add('message-row', sender);
+
+        // 2. Create Content Wrapper (centers max-width)
+        const content = document.createElement('div');
+        content.classList.add('message-content');
+
+        // 3. Create Bubble
+        const bubble = document.createElement('div');
+        bubble.classList.add('message-bubble');
+        
+        // Assemble
+        content.appendChild(bubble);
+        row.appendChild(content);
+        messagesDiv.appendChild(row);
+        
+        scrollToBottom();
+        return bubble; // Return the bubble so we can append text to it
+    }
+
+    function scrollToBottom() {
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function enableInput() {
+        inputField.disabled = false;
+        sendBtn.disabled = false;
+        inputField.focus();
+    }
+
+    function sendMessage() {
+        const text = inputField.value.trim();
+        if (!text) return;
+
+        // Display user message
+        const userBubble = createMessageRow('user');
+        userBubble.textContent = text;
+        
+        // Send to server
+        socket.send(JSON.stringify({ message: text }));
+
+        // Clear input
+        inputField.value = '';
+        inputField.disabled = true;
+        sendBtn.disabled = true;
+        
+        currentBotBubble = null; 
+    }
+</script>
+
+</body>
+</html>
